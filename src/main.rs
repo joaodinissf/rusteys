@@ -212,6 +212,19 @@ impl eframe::App for KeyDisplayApp {
                 // Always allocate minimum height to prevent layout shift when empty
                 ui.set_min_height(60.0);
                 
+                // Show focus message when window is focused (centered)
+                if is_focused {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new("Window in focus; press Esc to exit")
+                                .size(14.0)
+                                .color(egui::Color32::from_rgb(180, 200, 255))
+                        );
+                        ui.add_space(8.0);
+                    });
+                }
+                
                 // Use a scroll area that auto-scrolls to the right (most recent keys)
                 egui::ScrollArea::horizontal()
                     .auto_shrink(false)
@@ -220,8 +233,9 @@ impl eframe::App for KeyDisplayApp {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.spacing_mut().item_spacing.x = 12.0;
 
-                            for key_press in key_presses.iter().rev() {
+                            for (index, key_press) in key_presses.iter().rev().enumerate() {
                                 let age = now.duration_since(key_press.timestamp);
+                                let is_most_recent = index == 0; // First item in reversed iteration is most recent
                         
                         // Calculate fade for individual keys
                         let alpha = if age > KEY_DISPLAY_DURATION {
@@ -242,21 +256,35 @@ impl eframe::App for KeyDisplayApp {
 
                         let font_size = 28.0 * scale;
 
+                        // Different colors for most recent key vs older keys
+                        let (bg_color, border_color, text_color) = if is_most_recent {
+                            // Most recent key: darker blue accent color
+                            (
+                                egui::Color32::from_rgba_unmultiplied(70, 110, 200, alpha), // Darker blue background
+                                egui::Color32::from_rgba_unmultiplied(100, 140, 220, alpha), // Medium blue border
+                                egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha), // White text
+                            )
+                        } else {
+                            // Older keys: normal gray color
+                            (
+                                egui::Color32::from_rgba_unmultiplied(70, 75, 85, alpha),
+                                egui::Color32::from_rgba_unmultiplied(140, 150, 170, alpha),
+                                egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha),
+                            )
+                        };
+
                         // Use a Frame to draw background behind the text
                         egui::Frame::new()
-                            .fill(egui::Color32::from_rgba_unmultiplied(70, 75, 85, alpha))
+                            .fill(bg_color)
                             .corner_radius(egui::CornerRadius::same(6))
-                            .stroke(egui::Stroke::new(
-                                1.5,
-                                egui::Color32::from_rgba_unmultiplied(140, 150, 170, alpha),
-                            ))
+                            .stroke(egui::Stroke::new(1.5, border_color))
                             .inner_margin(egui::Margin::symmetric(12, 8))
                             .show(ui, |ui| {
                                 // Draw key text on top of the frame
                                 let text = egui::RichText::new(&key_press.text)
                                     .size(font_size)
                                     .strong()
-                                    .color(egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha));
+                                    .color(text_color);
 
                                 ui.add(egui::Label::new(text).wrap_mode(egui::TextWrapMode::Extend));
                             });
