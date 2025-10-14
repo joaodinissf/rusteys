@@ -1,0 +1,10 @@
+[package]
+name = "rusteys"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.33"
+egui = "0.33"
+rdev = "0.5"
+parking_lot = "0.12"
