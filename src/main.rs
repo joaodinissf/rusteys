@@ -31,6 +31,11 @@ struct Modifiers {
     shift: bool,
     alt: bool,
     meta: bool,
+    // Track if modifier was used in a combination
+    ctrl_used: bool,
+    shift_used: bool,
+    alt_used: bool,
+    meta_used: bool,
 }
 
 impl Modifiers {
@@ -143,6 +148,11 @@ impl KeyDisplayApp {
 impl eframe::App for KeyDisplayApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let now = Instant::now();
+
+        // Check if window is focused and Escape is pressed
+        if ctx.input(|i| i.focused && i.key_pressed(egui::Key::Escape)) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
 
         // Clean up old key presses
         {
@@ -287,6 +297,12 @@ fn main() -> Result<(), eframe::Error> {
                         if !mod_str.is_empty() {
                             key_text.push_str(&mod_str);
                             key_text.push_str(" + ");
+                            
+                            // Mark modifiers as used in combination
+                            if mods.ctrl { mods.ctrl_used = true; }
+                            if mods.shift { mods.shift_used = true; }
+                            if mods.alt { mods.alt_used = true; }
+                            if mods.meta { mods.meta_used = true; }
                         }
                     }
 
@@ -294,8 +310,8 @@ fn main() -> Result<(), eframe::Error> {
 
                     let mut key_presses = key_presses_clone.lock();
                     
-                    // Only add non-modifier keys or modifier combinations
-                    if !is_modifier || !key_text.is_empty() {
+                    // Only add non-modifier keys
+                    if !is_modifier {
                         key_presses.push_back(KeyPress {
                             text: key_text,
                             timestamp: Instant::now(),
@@ -309,12 +325,62 @@ fn main() -> Result<(), eframe::Error> {
                 }
                 EventType::KeyRelease(key) => {
                     let mut mods = modifiers_clone.lock();
+                    
+                    // Check if this modifier was used in a combination
+                    let is_modifier = matches!(
+                        key,
+                        Key::ControlLeft
+                            | Key::ControlRight
+                            | Key::ShiftLeft
+                            | Key::ShiftRight
+                            | Key::Alt
+                            | Key::AltGr
+                            | Key::MetaLeft
+                            | Key::MetaRight
+                    );
+                    
+                    // Show standalone modifier only if it wasn't used in combination
+                    if is_modifier {
+                        let was_used = match key {
+                            Key::ControlLeft | Key::ControlRight => mods.ctrl_used,
+                            Key::ShiftLeft | Key::ShiftRight => mods.shift_used,
+                            Key::Alt | Key::AltGr => mods.alt_used,
+                            Key::MetaLeft | Key::MetaRight => mods.meta_used,
+                            _ => false,
+                        };
+                        
+                        if !was_used {
+                            // Show standalone modifier key
+                            let mut key_presses = key_presses_clone.lock();
+                            key_presses.push_back(KeyPress {
+                                text: key_to_string(key),
+                                timestamp: Instant::now(),
+                            });
+                            
+                            while key_presses.len() > MAX_KEYS {
+                                key_presses.pop_front();
+                            }
+                        }
+                    }
+                    
                     // Update modifier state on release
                     match key {
-                        Key::ControlLeft | Key::ControlRight => mods.ctrl = false,
-                        Key::ShiftLeft | Key::ShiftRight => mods.shift = false,
-                        Key::Alt | Key::AltGr => mods.alt = false,
-                        Key::MetaLeft | Key::MetaRight => mods.meta = false,
+                        Key::ControlLeft | Key::ControlRight => {
+                            mods.ctrl = false;
+                            mods.ctrl_used = false;
+                        }
+                        Key::ShiftLeft | Key::ShiftRight => {
+                            mods.shift = false;
+                            mods.shift_used = false;
+                        }
+                        Key::Alt | Key::AltGr => {
+                            mods.alt = false;
+                            mods.alt_used = false;
+                        }
+                        Key::MetaLeft | Key::MetaRight => {
+                            mods.meta = false;
+                            mods.meta_used = false;
+                        }
                         _ => {}
                     }
                 }
