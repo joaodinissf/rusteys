@@ -170,6 +170,9 @@ impl eframe::App for KeyDisplayApp {
         // Request repaint for smooth animations
         ctx.request_repaint();
 
+        // Check if window is focused for visual indication
+        let is_focused = ctx.input(|i| i.focused);
+
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -189,6 +192,17 @@ impl eframe::App for KeyDisplayApp {
                     }),
             )
             .show(ctx, |ui| {
+                // Draw focus indicator outline on top of everything
+                if is_focused {
+                    let rect = ui.max_rect().shrink(1.5); // Shrink slightly to ensure outline is visible
+                    ui.painter().rect_stroke(
+                        rect,
+                        egui::CornerRadius::same(12),
+                        egui::Stroke::new(3.0, egui::Color32::from_rgb(100, 150, 255)),
+                        egui::StrokeKind::Outside,
+                    );
+                }
+                
                 // Make the window draggable by detecting drag on the background
                 let response = ui.interact(ui.max_rect(), ui.id().with("drag_overlay"), egui::Sense::drag());
                 if response.dragged() {
