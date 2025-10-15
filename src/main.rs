@@ -21,8 +21,17 @@ struct KeyPress {
     timestamp: Instant,
 }
 
+#[derive(Clone)]
+struct MonitorInfo {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
 struct KeyDisplayApp {
     key_presses: Arc<Mutex<VecDeque<KeyPress>>>,
+    monitors: Vec<MonitorInfo>,
 }
 
 #[derive(Default, Clone)]
@@ -140,8 +149,11 @@ fn key_to_string(key: Key) -> String {
 }
 
 impl KeyDisplayApp {
-    fn new(key_presses: Arc<Mutex<VecDeque<KeyPress>>>) -> Self {
-        Self { key_presses }
+    fn new(key_presses: Arc<Mutex<VecDeque<KeyPress>>>, monitors: Vec<MonitorInfo>) -> Self {
+        Self { 
+            key_presses,
+            monitors,
+        }
     }
 }
 
@@ -149,31 +161,62 @@ impl eframe::App for KeyDisplayApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let now = Instant::now();
 
-        // Check if window is focused and Escape is pressed
-        if ctx.input(|i| i.focused && i.key_pressed(egui::Key::Escape)) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        // Create secondary viewports for additional monitors (every frame)
+        if self.monitors.len() > 1 {
+            for (i, monitor) in self.monitors.iter().enumerate().skip(1) {
+                let window_width = monitor.width * WINDOW_WIDTH_FRACTION;
+                let window_x = monitor.x + (monitor.width - window_width) / 2.0;
+                let window_y = monitor.y + monitor.height * 0.85;
+                
+                let viewport_id = egui::ViewportId::from_hash_of(format!("monitor_{}", i));
+                let key_presses_clone = Arc::clone(&self.key_presses);
+                
+                ctx.show_viewport_immediate(
+                    viewport_id,
+                    egui::ViewportBuilder::default()
+                        .with_title(format!("Key Display Overlay - Monitor {}", i + 1))
+                        .with_inner_size([window_width, 100.0])
+                        .with_position([window_x, window_y])
+                        .with_decorations(false)
+                        .with_transparent(true)
+                        .with_always_on_top()
+                        .with_resizable(false)
+                        .with_mouse_passthrough(false),
+                    move |ctx, _class| {
+                        render_overlay(ctx, &key_presses_clone, now);
+                    },
+                );
+            }
         }
 
-        // Clean up old key presses
-        {
-            let mut key_presses = self.key_presses.lock();
-            key_presses.retain(|kp| {
-                now.duration_since(kp.timestamp) < KEY_DISPLAY_DURATION + FADE_OUT_DURATION
-            });
-        }
+        // Render the main window (first monitor)
+        render_overlay(ctx, &self.key_presses, now);
+    }
+}
 
-        let key_presses = self.key_presses.lock().clone();
+fn render_overlay(ctx: &egui::Context, key_presses: &Arc<Mutex<VecDeque<KeyPress>>>, now: Instant) {
+    // Check if window is focused and Escape is pressed
+    if ctx.input(|i| i.focused && i.key_pressed(egui::Key::Escape)) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
 
-        // Always show the window with constant background opacity
-        // No longer hide when empty to avoid jarring transitions
-        
-        // Request repaint for smooth animations
-        ctx.request_repaint();
+    // Clean up old key presses
+    {
+        let mut kp = key_presses.lock();
+        kp.retain(|kp| {
+            now.duration_since(kp.timestamp) < KEY_DISPLAY_DURATION + FADE_OUT_DURATION
+        });
+    }
 
-        // Check if window is focused for visual indication
-        let is_focused = ctx.input(|i| i.focused);
+    let key_presses_clone = key_presses.lock().clone();
 
-        egui::CentralPanel::default()
+    // Request repaint for smooth animations
+    ctx.request_repaint();
+
+    // Check if window is focused for visual indication
+    let is_focused = ctx.input(|i| i.focused);
+
+    egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgba_unmultiplied(
@@ -233,7 +276,7 @@ impl eframe::App for KeyDisplayApp {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.spacing_mut().item_spacing.x = 12.0;
 
-                            for (index, key_press) in key_presses.iter().rev().enumerate() {
+                            for (index, key_press) in key_presses_clone.iter().rev().enumerate() {
                                 let age = now.duration_since(key_press.timestamp);
                                 let is_most_recent = index == 0; // First item in reversed iteration is most recent
                         
@@ -288,11 +331,10 @@ impl eframe::App for KeyDisplayApp {
 
                                 ui.add(egui::Label::new(text).wrap_mode(egui::TextWrapMode::Extend));
                             });
-                        }
+                            }
+                        });
                     });
-                });
-        });
-    }
+            });
 }
 
 fn main() -> Result<(), eframe::Error> {
@@ -435,9 +477,35 @@ fn main() -> Result<(), eframe::Error> {
         }
     });
 
-    let window_width = SCREEN_WIDTH * WINDOW_WIDTH_FRACTION;
-    let window_x = (SCREEN_WIDTH - window_width) / 2.0;
-    let window_y = SCREEN_HEIGHT * 0.85;
+    // Get monitor information from Windows API
+    #[cfg(target_os = "windows")]
+    let mut monitors = get_monitors_windows();
+    
+    #[cfg(not(target_os = "windows"))]
+    let mut monitors = vec![MonitorInfo {
+        x: 0.0,
+        y: 0.0,
+        width: SCREEN_WIDTH,
+        height: SCREEN_HEIGHT,
+    }];
+
+    if monitors.is_empty() {
+        println!("No monitors detected, using default configuration");
+        monitors.push(MonitorInfo {
+            x: 0.0,
+            y: 0.0,
+            width: SCREEN_WIDTH,
+            height: SCREEN_HEIGHT,
+        });
+    }
+
+    println!("Detected {} monitor(s), creating overlay on each...", monitors.len());
+
+    // Position the first window on the first monitor
+    let first_monitor = &monitors[0];
+    let window_width = first_monitor.width * WINDOW_WIDTH_FRACTION;
+    let window_x = first_monitor.x + (first_monitor.width - window_width) / 2.0;
+    let window_y = first_monitor.y + first_monitor.height * 0.85;
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -452,11 +520,9 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     eframe::run_native(
-        "Key Display Overlay",
+        "Key Display Overlay - Monitor 1",
         options,
-        Box::new(|cc| {
-            // Make visuals as transparent as egui allows; true per-pixel window transparency
-            // relies on with_transparent(true) above. The platform may still composite a base layer.
+        Box::new(move |cc| {
             let mut style = (*cc.egui_ctx.style()).clone();
             style.visuals.window_fill = egui::Color32::TRANSPARENT;
             style.visuals.panel_fill = egui::Color32::TRANSPARENT;
@@ -465,12 +531,48 @@ fn main() -> Result<(), eframe::Error> {
             style.visuals.faint_bg_color = egui::Color32::TRANSPARENT;
             cc.egui_ctx.set_style(style);
 
-            // NOTE: egui 0.33 does not expose a ViewportCommand to change the clear color.
-            // The wgpu/gl backend clears to a dark default; to fully eliminate it you'd need
-            // a custom clear via a fork or use a transparent Area layered on a *smaller* window
-            // sized to content. Future improvement: dynamically shrink window when empty.
-
-            Ok(Box::new(KeyDisplayApp::new(key_presses)))
+            Ok(Box::new(KeyDisplayApp::new(key_presses, monitors)))
         }),
     )
+}
+
+#[cfg(target_os = "windows")]
+fn get_monitors_windows() -> Vec<MonitorInfo> {
+    use std::ptr;
+    use winapi::shared::windef::{HDC, HMONITOR, LPRECT};
+    use winapi::um::winuser::EnumDisplayMonitors;
+    
+    let mut monitors = Vec::new();
+    
+    unsafe extern "system" fn monitor_enum_proc(
+        _hmonitor: HMONITOR,
+        _hdc: HDC,
+        lprect: LPRECT,
+        lparam: isize,
+    ) -> i32 {
+        unsafe {
+            let monitors = &mut *(lparam as *mut Vec<MonitorInfo>);
+            let rect = &*lprect;
+            
+            monitors.push(MonitorInfo {
+                x: rect.left as f32,
+                y: rect.top as f32,
+                width: (rect.right - rect.left) as f32,
+                height: (rect.bottom - rect.top) as f32,
+            });
+            
+            1 // Continue enumeration
+        }
+    }
+    
+    unsafe {
+        EnumDisplayMonitors(
+            ptr::null_mut(),
+            ptr::null(),
+            Some(monitor_enum_proc),
+            &mut monitors as *mut _ as isize,
+        );
+    }
+    
+    monitors
 }

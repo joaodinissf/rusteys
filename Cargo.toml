@@ -8,3 +8,6 @@ eframe = "0.33"
 egui = "0.33"
 rdev = "0.5"
 parking_lot = "0.12"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "windef"] }
