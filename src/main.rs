@@ -1,539 +1,55 @@
+mod capture;
+mod config;
+mod history;
+mod input;
+mod keys;
+mod monitors;
+mod overlay;
+mod state;
+mod theme;
+
 use eframe::egui;
-use parking_lot::Mutex;
-use rdev::{Event, EventType, Key, listen};
-use std::collections::VecDeque;
+use monitors::MonitorInfo;
+use state::SharedState;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
-
-const MAX_KEYS: usize = 15;
-const KEY_DISPLAY_DURATION: Duration = Duration::from_millis(4000);
-const FADE_OUT_DURATION: Duration = Duration::from_millis(800);
-
-// Window sizing (as fraction of screen width)
-const WINDOW_WIDTH_FRACTION: f32 = 0.66; // 2/3rds of screen
-const SCREEN_WIDTH: f32 = 1920.0;
-const SCREEN_HEIGHT: f32 = 1080.0;
-
-#[derive(Clone)]
-struct KeyPress {
-    text: String,
-    timestamp: Instant,
-}
-
-#[derive(Clone)]
-struct MonitorInfo {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-}
+use std::time::Instant;
 
 struct KeyDisplayApp {
-    key_presses: Arc<Mutex<VecDeque<KeyPress>>>,
+    state: SharedState,
     monitors: Vec<MonitorInfo>,
-}
-
-#[derive(Default, Clone)]
-struct Modifiers {
-    ctrl: bool,
-    shift: bool,
-    alt: bool,
-    meta: bool,
-    // Track if modifier was used in a combination
-    ctrl_used: bool,
-    shift_used: bool,
-    alt_used: bool,
-    meta_used: bool,
-}
-
-impl Modifiers {
-    fn format(&self) -> String {
-        let mut parts = Vec::new();
-        if self.ctrl {
-            parts.push("Ctrl");
-        }
-        if self.shift {
-            parts.push("Shift");
-        }
-        if self.alt {
-            parts.push("Alt");
-        }
-        if self.meta {
-            parts.push("Win");
-        }
-        if parts.is_empty() {
-            String::new()
-        } else {
-            parts.join(" + ")
-        }
-    }
-}
-
-fn key_to_string(key: Key) -> String {
-    match key {
-        Key::Alt => "Alt".to_string(),
-        Key::AltGr => "AltGr".to_string(),
-        Key::Backspace => "Backspace".to_string(),
-        Key::CapsLock => "CapsLock".to_string(),
-        Key::ControlLeft | Key::ControlRight => "Ctrl".to_string(),
-        Key::Delete => "Delete".to_string(),
-        Key::DownArrow => "Down".to_string(),
-        Key::End => "End".to_string(),
-        Key::Escape => "Esc".to_string(),
-        Key::F1 => "F1".to_string(),
-        Key::F2 => "F2".to_string(),
-        Key::F3 => "F3".to_string(),
-        Key::F4 => "F4".to_string(),
-        Key::F5 => "F5".to_string(),
-        Key::F6 => "F6".to_string(),
-        Key::F7 => "F7".to_string(),
-        Key::F8 => "F8".to_string(),
-        Key::F9 => "F9".to_string(),
-        Key::F10 => "F10".to_string(),
-        Key::F11 => "F11".to_string(),
-        Key::F12 => "F12".to_string(),
-        Key::Home => "Home".to_string(),
-        Key::LeftArrow => "Left".to_string(),
-        Key::MetaLeft | Key::MetaRight => "Win".to_string(),
-        Key::PageDown => "PgDn".to_string(),
-        Key::PageUp => "PgUp".to_string(),
-        Key::Return => "Enter".to_string(),
-        Key::RightArrow => "Right".to_string(),
-        Key::ShiftLeft | Key::ShiftRight => "Shift".to_string(),
-        Key::Space => "Space".to_string(),
-        Key::Tab => "Tab".to_string(),
-        Key::UpArrow => "Up".to_string(),
-        Key::PrintScreen => "PrtSc".to_string(),
-        Key::ScrollLock => "ScrollLock".to_string(),
-        Key::Pause => "Pause".to_string(),
-        Key::Insert => "Insert".to_string(),
-        Key::Num0 => "0".to_string(),
-        Key::Num1 => "1".to_string(),
-        Key::Num2 => "2".to_string(),
-        Key::Num3 => "3".to_string(),
-        Key::Num4 => "4".to_string(),
-        Key::Num5 => "5".to_string(),
-        Key::Num6 => "6".to_string(),
-        Key::Num7 => "7".to_string(),
-        Key::Num8 => "8".to_string(),
-        Key::Num9 => "9".to_string(),
-        Key::KeyA => "A".to_string(),
-        Key::KeyB => "B".to_string(),
-        Key::KeyC => "C".to_string(),
-        Key::KeyD => "D".to_string(),
-        Key::KeyE => "E".to_string(),
-        Key::KeyF => "F".to_string(),
-        Key::KeyG => "G".to_string(),
-        Key::KeyH => "H".to_string(),
-        Key::KeyI => "I".to_string(),
-        Key::KeyJ => "J".to_string(),
-        Key::KeyK => "K".to_string(),
-        Key::KeyL => "L".to_string(),
-        Key::KeyM => "M".to_string(),
-        Key::KeyN => "N".to_string(),
-        Key::KeyO => "O".to_string(),
-        Key::KeyP => "P".to_string(),
-        Key::KeyQ => "Q".to_string(),
-        Key::KeyR => "R".to_string(),
-        Key::KeyS => "S".to_string(),
-        Key::KeyT => "T".to_string(),
-        Key::KeyU => "U".to_string(),
-        Key::KeyV => "V".to_string(),
-        Key::KeyW => "W".to_string(),
-        Key::KeyX => "X".to_string(),
-        Key::KeyY => "Y".to_string(),
-        Key::KeyZ => "Z".to_string(),
-        _ => format!("{:?}", key),
-    }
-}
-
-impl KeyDisplayApp {
-    fn new(key_presses: Arc<Mutex<VecDeque<KeyPress>>>, monitors: Vec<MonitorInfo>) -> Self {
-        Self {
-            key_presses,
-            monitors,
-        }
-    }
 }
 
 impl eframe::App for KeyDisplayApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
         let now = Instant::now();
 
         // Create secondary viewports for additional monitors (every frame)
-        if self.monitors.len() > 1 {
-            for (i, monitor) in self.monitors.iter().enumerate().skip(1) {
-                let window_width = monitor.width * WINDOW_WIDTH_FRACTION;
-                let window_x = monitor.x + (monitor.width - window_width) / 2.0;
-                let window_y = monitor.y + monitor.height * 0.85;
-
-                let viewport_id = egui::ViewportId::from_hash_of(format!("monitor_{}", i));
-                let key_presses_clone = Arc::clone(&self.key_presses);
-
-                ctx.show_viewport_immediate(
-                    viewport_id,
-                    egui::ViewportBuilder::default()
-                        .with_title(format!("Key Display Overlay - Monitor {}", i + 1))
-                        .with_inner_size([window_width, 100.0])
-                        .with_position([window_x, window_y])
-                        .with_decorations(false)
-                        .with_transparent(true)
-                        .with_always_on_top()
-                        .with_resizable(false)
-                        .with_mouse_passthrough(false),
-                    move |ui, _class| {
-                        render_overlay(ui, &key_presses_clone, now);
-                    },
-                );
-            }
+        for (i, monitor) in self.monitors.iter().enumerate().skip(1) {
+            let state = Arc::clone(&self.state);
+            ui.ctx().show_viewport_immediate(
+                egui::ViewportId::from_hash_of(format!("monitor_{i}")),
+                monitor
+                    .viewport_builder()
+                    .with_title(format!("Key Display Overlay - Monitor {}", i + 1)),
+                move |ui, _class| overlay::render(ui, &state, now),
+            );
         }
 
         // Render the main window (first monitor)
-        render_overlay(ui, &self.key_presses, now);
+        overlay::render(ui, &self.state, now);
     }
-}
-
-fn render_overlay(ui: &mut egui::Ui, key_presses: &Arc<Mutex<VecDeque<KeyPress>>>, now: Instant) {
-    let ctx = ui.ctx().clone();
-    // Check if window is focused and Escape is pressed
-    if ctx.input(|i| i.focused && i.key_pressed(egui::Key::Escape)) {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-    }
-
-    // Clean up old key presses
-    {
-        let mut kp = key_presses.lock();
-        kp.retain(|kp| now.duration_since(kp.timestamp) < KEY_DISPLAY_DURATION + FADE_OUT_DURATION);
-    }
-
-    let key_presses_clone = key_presses.lock().clone();
-
-    // Request repaint for smooth animations
-    ctx.request_repaint();
-
-    // Check if window is focused for visual indication
-    let is_focused = ctx.input(|i| i.focused);
-
-    egui::CentralPanel::default()
-        .frame(
-            egui::Frame::new()
-                .fill(egui::Color32::from_rgba_unmultiplied(
-                    35, 35, 35, 127, // Constant 50% opacity (255 * 0.5)
-                ))
-                .inner_margin(egui::Margin::same(20))
-                .corner_radius(egui::CornerRadius::same(12))
-                .shadow(egui::epaint::Shadow {
-                    offset: [0, 4],
-                    blur: 16,
-                    spread: 0,
-                    color: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 115), // Constant shadow opacity
-                }),
-        )
-        .show(ui, |ui| {
-            // Draw focus indicator outline on top of everything
-            if is_focused {
-                let rect = ui.max_rect().shrink(1.5); // Shrink slightly to ensure outline is visible
-                ui.painter().rect_stroke(
-                    rect,
-                    egui::CornerRadius::same(12),
-                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(100, 150, 255)),
-                    egui::StrokeKind::Outside,
-                );
-            }
-
-            // Make the window draggable by detecting drag on the background
-            let response = ui.interact(
-                ui.max_rect(),
-                ui.scope_id().with("drag_overlay"),
-                egui::Sense::drag(),
-            );
-            if response.dragged() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
-
-            // Always allocate minimum height to prevent layout shift when empty
-            ui.set_min_height(60.0);
-
-            // Show focus message when window is focused (centered)
-            if is_focused {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new("Window in focus; press Esc to exit")
-                            .size(14.0)
-                            .color(egui::Color32::from_rgb(180, 200, 255)),
-                    );
-                    ui.add_space(8.0);
-                });
-            }
-
-            // Use a scroll area that auto-scrolls to the right (most recent keys)
-            egui::ScrollArea::horizontal()
-                .auto_shrink(false)
-                .stick_to_right(true)
-                .show(ui, |ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
-
-                        for (index, key_press) in key_presses_clone.iter().rev().enumerate() {
-                            let age = now.duration_since(key_press.timestamp);
-                            let is_most_recent = index == 0; // First item in reversed iteration is most recent
-
-                            // Calculate fade for individual keys
-                            let alpha = if age > KEY_DISPLAY_DURATION {
-                                let fade_progress =
-                                    (age.as_millis() - KEY_DISPLAY_DURATION.as_millis()) as f32
-                                        / FADE_OUT_DURATION.as_millis() as f32;
-                                ((1.0 - fade_progress.min(1.0)) * 255.0) as u8
-                            } else {
-                                255
-                            };
-
-                            // Scale effect: slightly larger when first pressed
-                            let scale = if age.as_millis() < 100 {
-                                1.0 + (1.0 - age.as_millis() as f32 / 100.0) * 0.2
-                            } else {
-                                1.0
-                            };
-
-                            let font_size = 28.0 * scale;
-
-                            // Different colors for most recent key vs older keys
-                            let (bg_color, border_color, text_color) = if is_most_recent {
-                                // Most recent key: darker blue accent color
-                                (
-                                    egui::Color32::from_rgba_unmultiplied(70, 110, 200, alpha), // Darker blue background
-                                    egui::Color32::from_rgba_unmultiplied(100, 140, 220, alpha), // Medium blue border
-                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha), // White text
-                                )
-                            } else {
-                                // Older keys: normal gray color
-                                (
-                                    egui::Color32::from_rgba_unmultiplied(70, 75, 85, alpha),
-                                    egui::Color32::from_rgba_unmultiplied(140, 150, 170, alpha),
-                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha),
-                                )
-                            };
-
-                            // Use a Frame to draw background behind the text
-                            egui::Frame::new()
-                                .fill(bg_color)
-                                .corner_radius(egui::CornerRadius::same(6))
-                                .stroke(egui::Stroke::new(1.5_f32, border_color))
-                                .inner_margin(egui::Margin::symmetric(12, 8))
-                                .show(ui, |ui| {
-                                    // Draw key text on top of the frame
-                                    let text = egui::RichText::new(&key_press.text)
-                                        .size(font_size)
-                                        .strong()
-                                        .color(text_color);
-
-                                    ui.add(
-                                        egui::Label::new(text)
-                                            .wrap_mode(egui::TextWrapMode::Extend),
-                                    );
-                                });
-                        }
-                    });
-                });
-        });
 }
 
 fn main() -> Result<(), eframe::Error> {
-    let key_presses = Arc::new(Mutex::new(VecDeque::new()));
-    let modifiers = Arc::new(Mutex::new(Modifiers::default()));
-
-    let key_presses_clone = Arc::clone(&key_presses);
-    let modifiers_clone = Arc::clone(&modifiers);
-
-    // Spawn keyboard listener thread
-    thread::spawn(move || {
-        let callback = move |event: Event| {
-            match event.event_type {
-                EventType::KeyPress(key) => {
-                    let mut mods = modifiers_clone.lock();
-
-                    // Update modifier state
-                    match key {
-                        Key::ControlLeft | Key::ControlRight => mods.ctrl = true,
-                        Key::ShiftLeft | Key::ShiftRight => mods.shift = true,
-                        Key::Alt | Key::AltGr => mods.alt = true,
-                        Key::MetaLeft | Key::MetaRight => mods.meta = true,
-                        _ => {}
-                    }
-
-                    // Build the key combination string
-                    let mut key_text = String::new();
-
-                    // Add modifiers if present and this isn't a modifier key itself
-                    let is_modifier = matches!(
-                        key,
-                        Key::ControlLeft
-                            | Key::ControlRight
-                            | Key::ShiftLeft
-                            | Key::ShiftRight
-                            | Key::Alt
-                            | Key::AltGr
-                            | Key::MetaLeft
-                            | Key::MetaRight
-                    );
-
-                    if !is_modifier {
-                        let mod_str = mods.format();
-                        if !mod_str.is_empty() {
-                            key_text.push_str(&mod_str);
-                            key_text.push_str(" + ");
-
-                            // Mark modifiers as used in combination
-                            if mods.ctrl {
-                                mods.ctrl_used = true;
-                            }
-                            if mods.shift {
-                                mods.shift_used = true;
-                            }
-                            if mods.alt {
-                                mods.alt_used = true;
-                            }
-                            if mods.meta {
-                                mods.meta_used = true;
-                            }
-                        }
-                    }
-
-                    key_text.push_str(&key_to_string(key));
-
-                    let mut key_presses = key_presses_clone.lock();
-
-                    // Only add non-modifier keys
-                    if !is_modifier {
-                        key_presses.push_back(KeyPress {
-                            text: key_text,
-                            timestamp: Instant::now(),
-                        });
-
-                        // Keep only the most recent keys
-                        while key_presses.len() > MAX_KEYS {
-                            key_presses.pop_front();
-                        }
-                    }
-                }
-                EventType::KeyRelease(key) => {
-                    let mut mods = modifiers_clone.lock();
-
-                    // Check if this modifier was used in a combination
-                    let is_modifier = matches!(
-                        key,
-                        Key::ControlLeft
-                            | Key::ControlRight
-                            | Key::ShiftLeft
-                            | Key::ShiftRight
-                            | Key::Alt
-                            | Key::AltGr
-                            | Key::MetaLeft
-                            | Key::MetaRight
-                    );
-
-                    // Show standalone modifier only if it wasn't used in combination
-                    if is_modifier {
-                        let was_used = match key {
-                            Key::ControlLeft | Key::ControlRight => mods.ctrl_used,
-                            Key::ShiftLeft | Key::ShiftRight => mods.shift_used,
-                            Key::Alt | Key::AltGr => mods.alt_used,
-                            Key::MetaLeft | Key::MetaRight => mods.meta_used,
-                            _ => false,
-                        };
-
-                        if !was_used {
-                            // Show standalone modifier key
-                            let mut key_presses = key_presses_clone.lock();
-                            key_presses.push_back(KeyPress {
-                                text: key_to_string(key),
-                                timestamp: Instant::now(),
-                            });
-
-                            while key_presses.len() > MAX_KEYS {
-                                key_presses.pop_front();
-                            }
-                        }
-                    }
-
-                    // Update modifier state on release
-                    match key {
-                        Key::ControlLeft | Key::ControlRight => {
-                            mods.ctrl = false;
-                            mods.ctrl_used = false;
-                        }
-                        Key::ShiftLeft | Key::ShiftRight => {
-                            mods.shift = false;
-                            mods.shift_used = false;
-                        }
-                        Key::Alt | Key::AltGr => {
-                            mods.alt = false;
-                            mods.alt_used = false;
-                        }
-                        Key::MetaLeft | Key::MetaRight => {
-                            mods.meta = false;
-                            mods.meta_used = false;
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
-        };
-
-        #[cfg(target_os = "macos")]
-        rdev::set_is_main_thread(false);
-
-        if let Err(error) = listen(callback) {
-            eprintln!("Error listening to keyboard events: {:?}", error);
-        }
-    });
-
-    // Get monitor information from Windows API
-    #[cfg(target_os = "windows")]
-    let mut monitors = get_monitors_windows();
-
-    #[cfg(not(target_os = "windows"))]
-    let mut monitors = vec![MonitorInfo {
-        x: 0.0,
-        y: 0.0,
-        width: SCREEN_WIDTH,
-        height: SCREEN_HEIGHT,
-    }];
-
-    if monitors.is_empty() {
-        println!("No monitors detected, using default configuration");
-        monitors.push(MonitorInfo {
-            x: 0.0,
-            y: 0.0,
-            width: SCREEN_WIDTH,
-            height: SCREEN_HEIGHT,
-        });
-    }
-
+    let state = SharedState::default();
+    let monitors = monitors::detect();
     println!(
         "Detected {} monitor(s), creating overlay on each...",
         monitors.len()
     );
 
-    // Position the first window on the first monitor
-    let first_monitor = &monitors[0];
-    let window_width = first_monitor.width * WINDOW_WIDTH_FRACTION;
-    let window_x = first_monitor.x + (first_monitor.width - window_width) / 2.0;
-    let window_y = first_monitor.y + first_monitor.height * 0.85;
-
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([window_width, 100.0])
-            .with_position([window_x, window_y])
-            .with_decorations(false)
-            .with_transparent(true)
-            .with_always_on_top()
-            .with_resizable(false)
-            .with_mouse_passthrough(false),
+        viewport: monitors[0].viewport_builder(),
         ..Default::default()
     };
 
@@ -541,56 +57,9 @@ fn main() -> Result<(), eframe::Error> {
         "Key Display Overlay - Monitor 1",
         options,
         Box::new(move |cc| {
-            cc.egui_ctx.all_styles_mut(|style| {
-                style.visuals.window_fill = egui::Color32::TRANSPARENT;
-                style.visuals.panel_fill = egui::Color32::TRANSPARENT;
-                style.visuals.window_stroke = egui::Stroke::NONE;
-                style.visuals.extreme_bg_color = egui::Color32::TRANSPARENT;
-                style.visuals.faint_bg_color = egui::Color32::TRANSPARENT;
-            });
-
-            Ok(Box::new(KeyDisplayApp::new(key_presses, monitors)))
+            theme::apply_transparent_style(&cc.egui_ctx);
+            capture::spawn_capture(Arc::clone(&state), cc.egui_ctx.clone());
+            Ok(Box::new(KeyDisplayApp { state, monitors }))
         }),
     )
-}
-
-#[cfg(target_os = "windows")]
-fn get_monitors_windows() -> Vec<MonitorInfo> {
-    use std::ptr;
-    use winapi::shared::windef::{HDC, HMONITOR, LPRECT};
-    use winapi::um::winuser::EnumDisplayMonitors;
-
-    let mut monitors = Vec::new();
-
-    unsafe extern "system" fn monitor_enum_proc(
-        _hmonitor: HMONITOR,
-        _hdc: HDC,
-        lprect: LPRECT,
-        lparam: isize,
-    ) -> i32 {
-        unsafe {
-            let monitors = &mut *(lparam as *mut Vec<MonitorInfo>);
-            let rect = &*lprect;
-
-            monitors.push(MonitorInfo {
-                x: rect.left as f32,
-                y: rect.top as f32,
-                width: (rect.right - rect.left) as f32,
-                height: (rect.bottom - rect.top) as f32,
-            });
-
-            1 // Continue enumeration
-        }
-    }
-
-    unsafe {
-        EnumDisplayMonitors(
-            ptr::null_mut(),
-            ptr::null(),
-            Some(monitor_enum_proc),
-            &mut monitors as *mut _ as isize,
-        );
-    }
-
-    monitors
 }
