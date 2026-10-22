@@ -2,11 +2,12 @@
 name = "rusteys"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 
 [dependencies]
-eframe = "0.33"
-egui = "0.33"
-rdev = "0.5"
+eframe = "0.37"
+egui = "0.37"
+rdev = { git = "https://github.com/Narsil/rdev", rev = "b7e201bf80be" }
 parking_lot = "0.12"
 
 [target.'cfg(windows)'.dependencies]

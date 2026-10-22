@@ -158,7 +158,8 @@ impl KeyDisplayApp {
 }
 
 impl eframe::App for KeyDisplayApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         let now = Instant::now();
 
         // Create secondary viewports for additional monitors (every frame)
@@ -182,19 +183,20 @@ impl eframe::App for KeyDisplayApp {
                         .with_always_on_top()
                         .with_resizable(false)
                         .with_mouse_passthrough(false),
-                    move |ctx, _class| {
-                        render_overlay(ctx, &key_presses_clone, now);
+                    move |ui, _class| {
+                        render_overlay(ui, &key_presses_clone, now);
                     },
                 );
             }
         }
 
         // Render the main window (first monitor)
-        render_overlay(ctx, &self.key_presses, now);
+        render_overlay(ui, &self.key_presses, now);
     }
 }
 
-fn render_overlay(ctx: &egui::Context, key_presses: &Arc<Mutex<VecDeque<KeyPress>>>, now: Instant) {
+fn render_overlay(ui: &mut egui::Ui, key_presses: &Arc<Mutex<VecDeque<KeyPress>>>, now: Instant) {
+    let ctx = ui.ctx().clone();
     // Check if window is focused and Escape is pressed
     if ctx.input(|i| i.focused && i.key_pressed(egui::Key::Escape)) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -229,7 +231,7 @@ fn render_overlay(ctx: &egui::Context, key_presses: &Arc<Mutex<VecDeque<KeyPress
                     color: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 115), // Constant shadow opacity
                 }),
         )
-        .show(ctx, |ui| {
+        .show(ui, |ui| {
             // Draw focus indicator outline on top of everything
             if is_focused {
                 let rect = ui.max_rect().shrink(1.5); // Shrink slightly to ensure outline is visible
@@ -244,7 +246,7 @@ fn render_overlay(ctx: &egui::Context, key_presses: &Arc<Mutex<VecDeque<KeyPress
             // Make the window draggable by detecting drag on the background
             let response = ui.interact(
                 ui.max_rect(),
-                ui.id().with("drag_overlay"),
+                ui.scope_id().with("drag_overlay"),
                 egui::Sense::drag(),
             );
             if response.dragged() {
@@ -482,6 +484,9 @@ fn main() -> Result<(), eframe::Error> {
             }
         };
 
+        #[cfg(target_os = "macos")]
+        rdev::set_is_main_thread(false);
+
         if let Err(error) = listen(callback) {
             eprintln!("Error listening to keyboard events: {:?}", error);
         }
@@ -536,13 +541,13 @@ fn main() -> Result<(), eframe::Error> {
         "Key Display Overlay - Monitor 1",
         options,
         Box::new(move |cc| {
-            let mut style = (*cc.egui_ctx.style()).clone();
-            style.visuals.window_fill = egui::Color32::TRANSPARENT;
-            style.visuals.panel_fill = egui::Color32::TRANSPARENT;
-            style.visuals.window_stroke = egui::Stroke::NONE;
-            style.visuals.extreme_bg_color = egui::Color32::TRANSPARENT;
-            style.visuals.faint_bg_color = egui::Color32::TRANSPARENT;
-            cc.egui_ctx.set_style(style);
+            cc.egui_ctx.all_styles_mut(|style| {
+                style.visuals.window_fill = egui::Color32::TRANSPARENT;
+                style.visuals.panel_fill = egui::Color32::TRANSPARENT;
+                style.visuals.window_stroke = egui::Stroke::NONE;
+                style.visuals.extreme_bg_color = egui::Color32::TRANSPARENT;
+                style.visuals.faint_bg_color = egui::Color32::TRANSPARENT;
+            });
 
             Ok(Box::new(KeyDisplayApp::new(key_presses, monitors)))
         }),
