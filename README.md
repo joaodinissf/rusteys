@@ -2,18 +2,18 @@
 
 A small always-on-top overlay that shows the keys and shortcuts you press, for screencasts, live demos and presentations.
 
-![rusteys overlay showing a few key presses](docs/screenshot.png)
+<!-- ![rusteys overlay showing a few key presses](docs/screenshot.png) -->
 
-> TODO: capture `docs/screenshot.png` after the manual smoke test. The image is not in the repository yet.
+> TODO: capture `docs/screenshot.png` after the manual smoke test, then uncomment the image above.
 
 ## Features
 
-- **Keys and shortcuts as you type them.** Combinations are shown together (`Ctrl + S`, `Cmd + Shift + P`), newest on the right. Each key fades out after about 4 seconds.
+- **Keys and shortcuts as you type them.** Combinations are shown together (`Ctrl + S`, or `Shift + Cmd + P` on macOS), newest on the right. Each key fades out after about 4 seconds.
 - **Platform-aware labels.** macOS shows `Control`, `Option`, `Shift` and `Cmd` in the order the macOS menus use. Windows and Linux show `Ctrl`, `Alt`, `Shift` and `Win`. Punctuation and numpad keys get readable labels (`;`, `[`, `Num 7`) instead of internal names.
-- **Smart modifiers.** A modifier on its own (a lone `Shift` tap) is shown only when it was released without being part of a combination. Holding both Shift keys and releasing one still counts as Shift held.
+- **Smart modifiers.** A modifier on its own (a lone `Shift` tap) is shown only when it was released without being part of a combination. On Windows and Linux, holding both Shift keys and releasing one still counts as Shift held; on macOS the system reports such a pair as a single press and release.
 - **Repeat collapsing.** Holding or quickly repeating a key shows a single chip with a counter (`J ×5`) instead of filling the bar.
 - **Steady layout.** New keys get a short highlight without changing size, so the row doesn't jump.
-- **Clear capture errors.** If the keyboard can't be captured (for example, a missing macOS permission), the bar shows a banner that explains what to do instead of staying silently empty.
+- **Clear capture errors.** If keyboard capture fails to start, the bar shows a banner that explains what to do instead of staying silently empty.
 - **Placed on your real screen.** The bar is centred near the bottom of the primary display. On Windows there is one bar per monitor.
 - **Light on CPU.** The overlay only redraws while something is animating, so it stays idle when nothing is on screen.
 - **Draggable and always on top**, semi-transparent with rounded corners.
@@ -51,7 +51,7 @@ The app that launches rusteys needs **Input Monitoring**. When you start it from
 3. macOS may also ask for **Accessibility** under the same Privacy & Security section. Allow it if prompted.
 4. Quit and reopen the terminal app, then launch rusteys again. The permission only applies to newly started processes.
 
-Without the permission, rusteys still opens, but the bar shows an amber "Keyboard capture unavailable" banner.
+Without the permission, rusteys still opens. If macOS refuses the keyboard tap, the bar shows an amber "Keyboard capture unavailable" banner; if the bar instead stays empty while you type, check this permission.
 
 ### Windows
 
