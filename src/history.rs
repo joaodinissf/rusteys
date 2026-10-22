@@ -25,9 +25,6 @@ pub struct KeyPress {
 
 impl KeyPress {
     /// The text to draw: the label, followed by `×N` when it was repeated.
-    // Used by the overlay once it draws repeat counts (WP-C); `allow` rather than
-    // `expect` so that change does not trip `unfulfilled_lint_expectations`.
-    #[allow(dead_code, reason = "consumed by overlay.rs in a later commit")]
     pub fn display(&self) -> Cow<'_, str> {
         if self.count > 1 {
             Cow::Owned(format!("{} ×{}", self.text, self.count))
@@ -88,10 +85,6 @@ impl KeyHistory {
     /// entry is already past the end of its fade and only awaits [`Self::prune`]).
     /// A returned `Duration::ZERO` never happens: boundaries exactly at `now` are
     /// treated as passed.
-    #[allow(
-        dead_code,
-        reason = "consumed by overlay.rs repaint scheduling in a later commit"
-    )]
     pub fn next_deadline(&self, now: Instant) -> Option<Duration> {
         let milestones = [
             POP_DURATION,
