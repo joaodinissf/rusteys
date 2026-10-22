@@ -30,8 +30,6 @@ pub const CONTENT_HEIGHT: f32 = 56.0;
 /// Overall bar (window) height in points: content plus the vertical margins.
 ///
 /// The window should be exactly this tall so nothing is clipped or stretched.
-// Meant for the window setup, which still uses `config::WINDOW_HEIGHT`.
-#[allow(dead_code)]
 pub const BAR_HEIGHT: f32 = CONTENT_HEIGHT + 2.0 * PANEL_MARGIN.1 as f32;
 
 // --- Focus -------------------------------------------------------------------

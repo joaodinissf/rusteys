@@ -36,7 +36,7 @@ pub fn render(ui: &mut egui::Ui, state: &SharedState, now: Instant) {
     }
 
     // Lock once: prune, then copy only what is drawn (newest first).
-    let (chips, capture) = {
+    let (chips, capture, next_deadline) = {
         let mut state = state.lock();
         state.history.prune(now);
         let chips: Vec<Chip> = state
@@ -44,11 +44,12 @@ pub fn render(ui: &mut egui::Ui, state: &SharedState, now: Instant) {
             .iter()
             .rev()
             .map(|kp| Chip {
-                text: kp.text.clone(),
+                text: kp.display().into_owned(),
                 age: now.saturating_duration_since(kp.timestamp),
             })
             .collect();
-        (chips, state.capture.clone())
+        let next_deadline = state.history.next_deadline(now);
+        (chips, state.capture.clone(), next_deadline)
     };
 
     let since_launch = now.saturating_duration_since(launch_time(&ctx, now));
@@ -60,7 +61,7 @@ pub fn render(ui: &mut egui::Ui, state: &SharedState, now: Instant) {
     // UI through the context held by the capture thread.
     let hint_deadline = show_empty_hint.then(|| EMPTY_HINT_DURATION - since_launch);
     if let Some(delay) = earliest(
-        repaint_delay(chips.iter().map(|chip| chip.age)),
+        repaint_delay(chips.iter().map(|chip| chip.age), next_deadline),
         hint_deadline,
     ) {
         ctx.request_repaint_after(delay);
@@ -249,19 +250,22 @@ fn terminal_display_name(term_program: &str) -> String {
 /// How long until the chips with the given ages next need a repaint.
 ///
 /// While a chip pops or fades the bar animates every frame; otherwise it
-/// sleeps until the next chip starts fading. `None` means nothing will change.
-fn repaint_delay(ages: impl IntoIterator<Item = Duration>) -> Option<Duration> {
+/// sleeps until `next_deadline`, the history's next pop/fade boundary (see
+/// [`crate::history::KeyHistory::next_deadline`]). `None` means nothing will
+/// change.
+fn repaint_delay(
+    ages: impl IntoIterator<Item = Duration>,
+    next_deadline: Option<Duration>,
+) -> Option<Duration> {
     let fade_end = KEY_DISPLAY_DURATION + FADE_OUT_DURATION;
-    ages.into_iter()
-        .filter(|&age| age < fade_end)
-        .map(|age| {
-            if age < POP_DURATION || age >= KEY_DISPLAY_DURATION {
-                ANIMATION_FRAME
-            } else {
-                KEY_DISPLAY_DURATION - age
-            }
-        })
-        .min()
+    let animating = ages
+        .into_iter()
+        .any(|age| age < POP_DURATION || (KEY_DISPLAY_DURATION..fade_end).contains(&age));
+    if animating {
+        Some(ANIMATION_FRAME)
+    } else {
+        next_deadline
+    }
 }
 
 fn earliest(a: Option<Duration>, b: Option<Duration>) -> Option<Duration> {
@@ -277,34 +281,48 @@ mod tests {
 
     #[test]
     fn no_chips_needs_no_repaint() {
-        assert_eq!(repaint_delay([]), None);
+        assert_eq!(repaint_delay([], None), None);
     }
 
     #[test]
     fn popping_or_fading_chip_animates() {
-        assert_eq!(repaint_delay([Duration::ZERO]), Some(ANIMATION_FRAME));
+        let later = Some(Duration::from_secs(3));
         assert_eq!(
-            repaint_delay([KEY_DISPLAY_DURATION + Duration::from_millis(1)]),
+            repaint_delay([Duration::ZERO], later),
+            Some(ANIMATION_FRAME)
+        );
+        assert_eq!(
+            repaint_delay([KEY_DISPLAY_DURATION + Duration::from_millis(1)], later),
             Some(ANIMATION_FRAME)
         );
     }
 
     #[test]
-    fn steady_chip_sleeps_until_fade_starts() {
-        let age = Duration::from_secs(1);
-        assert_eq!(repaint_delay([age]), Some(KEY_DISPLAY_DURATION - age));
-        // The chip closest to fading decides.
-        let older = Duration::from_secs(3);
+    fn steady_chips_sleep_until_the_next_deadline() {
+        let deadline = Some(Duration::from_secs(1));
+        assert_eq!(repaint_delay([Duration::from_secs(1)], deadline), deadline);
         assert_eq!(
-            repaint_delay([age, older]),
-            Some(KEY_DISPLAY_DURATION - older)
+            repaint_delay([Duration::from_secs(1), Duration::from_secs(3)], deadline),
+            deadline
+        );
+    }
+
+    #[test]
+    fn steady_chip_with_real_history_sleeps_until_fade_starts() {
+        let start = Instant::now();
+        let mut history = crate::history::KeyHistory::default();
+        history.push("A".to_owned(), start);
+        let now = start + Duration::from_secs(1);
+        assert_eq!(
+            repaint_delay([Duration::from_secs(1)], history.next_deadline(now)),
+            Some(KEY_DISPLAY_DURATION - Duration::from_secs(1))
         );
     }
 
     #[test]
     fn faded_chip_needs_no_repaint() {
         assert_eq!(
-            repaint_delay([KEY_DISPLAY_DURATION + FADE_OUT_DURATION]),
+            repaint_delay([KEY_DISPLAY_DURATION + FADE_OUT_DURATION], None),
             None
         );
     }
