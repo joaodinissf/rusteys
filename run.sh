@@ -1,13 +1,5 @@
-#!/bin/bash
-# Helper script to build and run the Rusteys key display overlay
-
-echo "Building Rusteys..."
-cargo build --release
-
-if [ $? -eq 0 ]; then
-    echo "Build successful! Starting Rusteys - Key Display Overlay..."
-    ./target/release/rusteys.exe
-else
-    echo "Build failed. Please check the error messages above."
-    exit 1
-fi
+#!/usr/bin/env bash
+# Build and run the rusteys overlay in release mode. Any arguments are passed to rusteys.
+set -euo pipefail
+cd "$(dirname "$0")"
+exec cargo run --release -- "$@"
