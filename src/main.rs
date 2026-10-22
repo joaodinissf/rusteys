@@ -1,6 +1,6 @@
 use eframe::egui;
 use parking_lot::Mutex;
-use rdev::{listen, Event, EventType, Key};
+use rdev::{Event, EventType, Key, listen};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::thread;
@@ -150,7 +150,7 @@ fn key_to_string(key: Key) -> String {
 
 impl KeyDisplayApp {
     fn new(key_presses: Arc<Mutex<VecDeque<KeyPress>>>, monitors: Vec<MonitorInfo>) -> Self {
-        Self { 
+        Self {
             key_presses,
             monitors,
         }
@@ -167,10 +167,10 @@ impl eframe::App for KeyDisplayApp {
                 let window_width = monitor.width * WINDOW_WIDTH_FRACTION;
                 let window_x = monitor.x + (monitor.width - window_width) / 2.0;
                 let window_y = monitor.y + monitor.height * 0.85;
-                
+
                 let viewport_id = egui::ViewportId::from_hash_of(format!("monitor_{}", i));
                 let key_presses_clone = Arc::clone(&self.key_presses);
-                
+
                 ctx.show_viewport_immediate(
                     viewport_id,
                     egui::ViewportBuilder::default()
@@ -203,9 +203,7 @@ fn render_overlay(ctx: &egui::Context, key_presses: &Arc<Mutex<VecDeque<KeyPress
     // Clean up old key presses
     {
         let mut kp = key_presses.lock();
-        kp.retain(|kp| {
-            now.duration_since(kp.timestamp) < KEY_DISPLAY_DURATION + FADE_OUT_DURATION
-        });
+        kp.retain(|kp| now.duration_since(kp.timestamp) < KEY_DISPLAY_DURATION + FADE_OUT_DURATION);
     }
 
     let key_presses_clone = key_presses.lock().clone();
@@ -217,124 +215,128 @@ fn render_overlay(ctx: &egui::Context, key_presses: &Arc<Mutex<VecDeque<KeyPress
     let is_focused = ctx.input(|i| i.focused);
 
     egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(egui::Color32::from_rgba_unmultiplied(
-                        35,
-                        35,
-                        35,
-                        127, // Constant 50% opacity (255 * 0.5)
-                    ))
-                    .inner_margin(egui::Margin::same(20))
-                    .corner_radius(egui::CornerRadius::same(12))
-                    .shadow(egui::epaint::Shadow {
-                        offset: [0, 4],
-                        blur: 16,
-                        spread: 0,
-                        color: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 115), // Constant shadow opacity
-                    }),
-            )
-            .show(ctx, |ui| {
-                // Draw focus indicator outline on top of everything
-                if is_focused {
-                    let rect = ui.max_rect().shrink(1.5); // Shrink slightly to ensure outline is visible
-                    ui.painter().rect_stroke(
-                        rect,
-                        egui::CornerRadius::same(12),
-                        egui::Stroke::new(3.0, egui::Color32::from_rgb(100, 150, 255)),
-                        egui::StrokeKind::Outside,
+        .frame(
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgba_unmultiplied(
+                    35, 35, 35, 127, // Constant 50% opacity (255 * 0.5)
+                ))
+                .inner_margin(egui::Margin::same(20))
+                .corner_radius(egui::CornerRadius::same(12))
+                .shadow(egui::epaint::Shadow {
+                    offset: [0, 4],
+                    blur: 16,
+                    spread: 0,
+                    color: egui::Color32::from_rgba_unmultiplied(0, 0, 0, 115), // Constant shadow opacity
+                }),
+        )
+        .show(ctx, |ui| {
+            // Draw focus indicator outline on top of everything
+            if is_focused {
+                let rect = ui.max_rect().shrink(1.5); // Shrink slightly to ensure outline is visible
+                ui.painter().rect_stroke(
+                    rect,
+                    egui::CornerRadius::same(12),
+                    egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(100, 150, 255)),
+                    egui::StrokeKind::Outside,
+                );
+            }
+
+            // Make the window draggable by detecting drag on the background
+            let response = ui.interact(
+                ui.max_rect(),
+                ui.id().with("drag_overlay"),
+                egui::Sense::drag(),
+            );
+            if response.dragged() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+
+            // Always allocate minimum height to prevent layout shift when empty
+            ui.set_min_height(60.0);
+
+            // Show focus message when window is focused (centered)
+            if is_focused {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new("Window in focus; press Esc to exit")
+                            .size(14.0)
+                            .color(egui::Color32::from_rgb(180, 200, 255)),
                     );
-                }
-                
-                // Make the window draggable by detecting drag on the background
-                let response = ui.interact(ui.max_rect(), ui.id().with("drag_overlay"), egui::Sense::drag());
-                if response.dragged() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                }
-                
-                // Always allocate minimum height to prevent layout shift when empty
-                ui.set_min_height(60.0);
-                
-                // Show focus message when window is focused (centered)
-                if is_focused {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(8.0);
-                        ui.label(
-                            egui::RichText::new("Window in focus; press Esc to exit")
-                                .size(14.0)
-                                .color(egui::Color32::from_rgb(180, 200, 255))
-                        );
-                        ui.add_space(8.0);
+                    ui.add_space(8.0);
+                });
+            }
+
+            // Use a scroll area that auto-scrolls to the right (most recent keys)
+            egui::ScrollArea::horizontal()
+                .auto_shrink(false)
+                .stick_to_right(true)
+                .show(ui, |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
+
+                        for (index, key_press) in key_presses_clone.iter().rev().enumerate() {
+                            let age = now.duration_since(key_press.timestamp);
+                            let is_most_recent = index == 0; // First item in reversed iteration is most recent
+
+                            // Calculate fade for individual keys
+                            let alpha = if age > KEY_DISPLAY_DURATION {
+                                let fade_progress =
+                                    (age.as_millis() - KEY_DISPLAY_DURATION.as_millis()) as f32
+                                        / FADE_OUT_DURATION.as_millis() as f32;
+                                ((1.0 - fade_progress.min(1.0)) * 255.0) as u8
+                            } else {
+                                255
+                            };
+
+                            // Scale effect: slightly larger when first pressed
+                            let scale = if age.as_millis() < 100 {
+                                1.0 + (1.0 - age.as_millis() as f32 / 100.0) * 0.2
+                            } else {
+                                1.0
+                            };
+
+                            let font_size = 28.0 * scale;
+
+                            // Different colors for most recent key vs older keys
+                            let (bg_color, border_color, text_color) = if is_most_recent {
+                                // Most recent key: darker blue accent color
+                                (
+                                    egui::Color32::from_rgba_unmultiplied(70, 110, 200, alpha), // Darker blue background
+                                    egui::Color32::from_rgba_unmultiplied(100, 140, 220, alpha), // Medium blue border
+                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha), // White text
+                                )
+                            } else {
+                                // Older keys: normal gray color
+                                (
+                                    egui::Color32::from_rgba_unmultiplied(70, 75, 85, alpha),
+                                    egui::Color32::from_rgba_unmultiplied(140, 150, 170, alpha),
+                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha),
+                                )
+                            };
+
+                            // Use a Frame to draw background behind the text
+                            egui::Frame::new()
+                                .fill(bg_color)
+                                .corner_radius(egui::CornerRadius::same(6))
+                                .stroke(egui::Stroke::new(1.5_f32, border_color))
+                                .inner_margin(egui::Margin::symmetric(12, 8))
+                                .show(ui, |ui| {
+                                    // Draw key text on top of the frame
+                                    let text = egui::RichText::new(&key_press.text)
+                                        .size(font_size)
+                                        .strong()
+                                        .color(text_color);
+
+                                    ui.add(
+                                        egui::Label::new(text)
+                                            .wrap_mode(egui::TextWrapMode::Extend),
+                                    );
+                                });
+                        }
                     });
-                }
-                
-                // Use a scroll area that auto-scrolls to the right (most recent keys)
-                egui::ScrollArea::horizontal()
-                    .auto_shrink(false)
-                    .stick_to_right(true)
-                    .show(ui, |ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.spacing_mut().item_spacing.x = 12.0;
-
-                            for (index, key_press) in key_presses_clone.iter().rev().enumerate() {
-                                let age = now.duration_since(key_press.timestamp);
-                                let is_most_recent = index == 0; // First item in reversed iteration is most recent
-                        
-                        // Calculate fade for individual keys
-                        let alpha = if age > KEY_DISPLAY_DURATION {
-                            let fade_progress = (age.as_millis() - KEY_DISPLAY_DURATION.as_millis())
-                                as f32
-                                / FADE_OUT_DURATION.as_millis() as f32;
-                            ((1.0 - fade_progress.min(1.0)) * 255.0) as u8
-                        } else {
-                            255
-                        };
-
-                        // Scale effect: slightly larger when first pressed
-                        let scale = if age.as_millis() < 100 {
-                            1.0 + (1.0 - age.as_millis() as f32 / 100.0) * 0.2
-                        } else {
-                            1.0
-                        };
-
-                        let font_size = 28.0 * scale;
-
-                        // Different colors for most recent key vs older keys
-                        let (bg_color, border_color, text_color) = if is_most_recent {
-                            // Most recent key: darker blue accent color
-                            (
-                                egui::Color32::from_rgba_unmultiplied(70, 110, 200, alpha), // Darker blue background
-                                egui::Color32::from_rgba_unmultiplied(100, 140, 220, alpha), // Medium blue border
-                                egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha), // White text
-                            )
-                        } else {
-                            // Older keys: normal gray color
-                            (
-                                egui::Color32::from_rgba_unmultiplied(70, 75, 85, alpha),
-                                egui::Color32::from_rgba_unmultiplied(140, 150, 170, alpha),
-                                egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha),
-                            )
-                        };
-
-                        // Use a Frame to draw background behind the text
-                        egui::Frame::new()
-                            .fill(bg_color)
-                            .corner_radius(egui::CornerRadius::same(6))
-                            .stroke(egui::Stroke::new(1.5, border_color))
-                            .inner_margin(egui::Margin::symmetric(12, 8))
-                            .show(ui, |ui| {
-                                // Draw key text on top of the frame
-                                let text = egui::RichText::new(&key_press.text)
-                                    .size(font_size)
-                                    .strong()
-                                    .color(text_color);
-
-                                ui.add(egui::Label::new(text).wrap_mode(egui::TextWrapMode::Extend));
-                            });
-                            }
-                        });
-                    });
-            });
+                });
+        });
 }
 
 fn main() -> Result<(), eframe::Error> {
@@ -362,7 +364,7 @@ fn main() -> Result<(), eframe::Error> {
 
                     // Build the key combination string
                     let mut key_text = String::new();
-                    
+
                     // Add modifiers if present and this isn't a modifier key itself
                     let is_modifier = matches!(
                         key,
@@ -381,19 +383,27 @@ fn main() -> Result<(), eframe::Error> {
                         if !mod_str.is_empty() {
                             key_text.push_str(&mod_str);
                             key_text.push_str(" + ");
-                            
+
                             // Mark modifiers as used in combination
-                            if mods.ctrl { mods.ctrl_used = true; }
-                            if mods.shift { mods.shift_used = true; }
-                            if mods.alt { mods.alt_used = true; }
-                            if mods.meta { mods.meta_used = true; }
+                            if mods.ctrl {
+                                mods.ctrl_used = true;
+                            }
+                            if mods.shift {
+                                mods.shift_used = true;
+                            }
+                            if mods.alt {
+                                mods.alt_used = true;
+                            }
+                            if mods.meta {
+                                mods.meta_used = true;
+                            }
                         }
                     }
 
                     key_text.push_str(&key_to_string(key));
 
                     let mut key_presses = key_presses_clone.lock();
-                    
+
                     // Only add non-modifier keys
                     if !is_modifier {
                         key_presses.push_back(KeyPress {
@@ -409,7 +419,7 @@ fn main() -> Result<(), eframe::Error> {
                 }
                 EventType::KeyRelease(key) => {
                     let mut mods = modifiers_clone.lock();
-                    
+
                     // Check if this modifier was used in a combination
                     let is_modifier = matches!(
                         key,
@@ -422,7 +432,7 @@ fn main() -> Result<(), eframe::Error> {
                             | Key::MetaLeft
                             | Key::MetaRight
                     );
-                    
+
                     // Show standalone modifier only if it wasn't used in combination
                     if is_modifier {
                         let was_used = match key {
@@ -432,7 +442,7 @@ fn main() -> Result<(), eframe::Error> {
                             Key::MetaLeft | Key::MetaRight => mods.meta_used,
                             _ => false,
                         };
-                        
+
                         if !was_used {
                             // Show standalone modifier key
                             let mut key_presses = key_presses_clone.lock();
@@ -440,13 +450,13 @@ fn main() -> Result<(), eframe::Error> {
                                 text: key_to_string(key),
                                 timestamp: Instant::now(),
                             });
-                            
+
                             while key_presses.len() > MAX_KEYS {
                                 key_presses.pop_front();
                             }
                         }
                     }
-                    
+
                     // Update modifier state on release
                     match key {
                         Key::ControlLeft | Key::ControlRight => {
@@ -480,7 +490,7 @@ fn main() -> Result<(), eframe::Error> {
     // Get monitor information from Windows API
     #[cfg(target_os = "windows")]
     let mut monitors = get_monitors_windows();
-    
+
     #[cfg(not(target_os = "windows"))]
     let mut monitors = vec![MonitorInfo {
         x: 0.0,
@@ -499,7 +509,10 @@ fn main() -> Result<(), eframe::Error> {
         });
     }
 
-    println!("Detected {} monitor(s), creating overlay on each...", monitors.len());
+    println!(
+        "Detected {} monitor(s), creating overlay on each...",
+        monitors.len()
+    );
 
     // Position the first window on the first monitor
     let first_monitor = &monitors[0];
@@ -541,9 +554,9 @@ fn get_monitors_windows() -> Vec<MonitorInfo> {
     use std::ptr;
     use winapi::shared::windef::{HDC, HMONITOR, LPRECT};
     use winapi::um::winuser::EnumDisplayMonitors;
-    
+
     let mut monitors = Vec::new();
-    
+
     unsafe extern "system" fn monitor_enum_proc(
         _hmonitor: HMONITOR,
         _hdc: HDC,
@@ -553,18 +566,18 @@ fn get_monitors_windows() -> Vec<MonitorInfo> {
         unsafe {
             let monitors = &mut *(lparam as *mut Vec<MonitorInfo>);
             let rect = &*lprect;
-            
+
             monitors.push(MonitorInfo {
                 x: rect.left as f32,
                 y: rect.top as f32,
                 width: (rect.right - rect.left) as f32,
                 height: (rect.bottom - rect.top) as f32,
             });
-            
+
             1 // Continue enumeration
         }
     }
-    
+
     unsafe {
         EnumDisplayMonitors(
             ptr::null_mut(),
@@ -573,6 +586,6 @@ fn get_monitors_windows() -> Vec<MonitorInfo> {
             &mut monitors as *mut _ as isize,
         );
     }
-    
+
     monitors
 }
