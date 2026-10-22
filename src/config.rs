@@ -20,9 +20,7 @@ pub const POP_EXTRA_SCALE: f32 = 0.2;
 pub const WINDOW_WIDTH_FRACTION: f32 = 0.66;
 /// Vertical position of the overlay's top edge as a fraction of the monitor height.
 pub const WINDOW_Y_FRACTION: f32 = 0.85;
-/// Overlay window height in points.
-pub const WINDOW_HEIGHT: f32 = 100.0;
 
-/// Assumed screen size when the real monitor geometry is unknown.
-pub const SCREEN_WIDTH: f32 = 1920.0;
-pub const SCREEN_HEIGHT: f32 = 1080.0;
+/// Assumed screen size (width, height) in points before the real monitor
+/// geometry is known, i.e. only until the first frame on macOS and Linux.
+pub const DEFAULT_SCREEN_SIZE: (f32, f32) = (1280.0, 800.0);
